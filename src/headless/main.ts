@@ -161,7 +161,8 @@ async function waitForFaceApplied(
   const isApplied = (): boolean =>
     GENERICS.every(
       (generic) =>
-        measure(`${weight} 100px "${family}", ${generic}`) !== measure(`${weight} 100px ${generic}`),
+        measure(`${weight} 100px "${family}", ${generic}`) !==
+        measure(`${weight} 100px ${generic}`),
     )
 
   let streak = 0
@@ -871,49 +872,27 @@ interface MigratedTimelineView {
   projectWarnings: ProjectWarning[]
 }
 
-function extractTimelineFields(
-  timeline: NonNullable<Project['timeline']>,
-): Pick<MigratedTimelineView, 'tracks' | 'items' | 'transitions' | 'busAudioEq' | 'masterBusDb'> {
-  return {
-    tracks: (timeline.tracks ?? []) as unknown as TimelineTrack[],
-    items: (timeline.items ?? []) as unknown as TimelineItem[],
-    transitions: (timeline.transitions ?? []) as Transition[],
-    busAudioEq: timeline.busAudioEq,
-    masterBusDb: timeline.masterBusDb,
-  }
-}
-
-function extractCanvasDimensions(
-  meta: Partial<Project['metadata']>,
-): Pick<MigratedTimelineView, 'width' | 'height'> {
-  return {
-    width: meta.width ?? 1920,
-    height: meta.height ?? 1080,
-  }
-}
-
-function extractCanvasMetadata(
-  meta: Project['metadata'],
-): Pick<MigratedTimelineView, 'fps' | 'width' | 'height' | 'backgroundColor'> {
-  const canvas = meta ?? {}
-  return {
-    fps: canvas.fps ?? 30,
-    ...extractCanvasDimensions(canvas),
-    backgroundColor: canvas.backgroundColor,
-  }
-}
-
 /** Migrate a raw project and extract the fields the composition builder needs. */
+// Keep this declarative default mapping together instead of splitting assignments into helpers.
+// fallow-ignore-next-line complexity
 function extractTimeline(rawProject: Project): MigratedTimelineView {
   const { project, warnings: projectWarnings } = migrateProject(rawProject)
   const timeline = project.timeline
   if (!timeline) throw new Error('Project has no timeline')
+  const meta = project.metadata
   return {
     projectWarnings,
-    ...extractTimelineFields(timeline),
+    tracks: (timeline.tracks ?? []) as unknown as TimelineTrack[],
+    items: (timeline.items ?? []) as unknown as TimelineItem[],
+    transitions: (timeline.transitions ?? []) as Transition[],
     keyframes: (timeline.keyframes ?? []) as unknown as ItemKeyframes[],
     compositions: (timeline.compositions ?? []) as unknown as SubComposition[],
-    ...extractCanvasMetadata(project.metadata),
+    fps: meta?.fps ?? 30,
+    width: meta?.width ?? 1920,
+    height: meta?.height ?? 1080,
+    backgroundColor: meta?.backgroundColor,
+    busAudioEq: timeline.busAudioEq,
+    masterBusDb: timeline.masterBusDb,
   }
 }
 
