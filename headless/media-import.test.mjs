@@ -9,6 +9,30 @@ import { withIdempotency } from './lib/idempotency.mjs'
 import { importWorkspaceMedia, requestHashOf, workspaceFingerprint } from './lib/media-import.mjs'
 import { createProjectResource, getMediaResource } from './lib/lifecycle-store.mjs'
 
+// Prefer real file symlinks. Unprivileged Windows cannot create them, so only
+// their lstat metadata is injected there; bytes and all other filesystem I/O stay real.
+function fileSymlinkFixture(t, target, link) {
+  try {
+    fs.symlinkSync(target, link, 'file')
+    return
+  } catch (error) {
+    if (process.platform !== 'win32' || error.code !== 'EPERM') throw error
+  }
+  fs.copyFileSync(target, link)
+  const linkPath = path.resolve(link)
+  const markLink = (file, info) => {
+    if (path.resolve(String(file)) === linkPath) info.isSymbolicLink = () => true
+    return info
+  }
+  const lstatSync = fs.lstatSync.bind(fs)
+  const lstat = fs.promises.lstat.bind(fs.promises)
+  t.mock.method(fs, 'lstatSync', (file, ...args) => markLink(file, lstatSync(file, ...args)))
+  t.mock.method(fs.promises, 'lstat', async (file, ...args) =>
+    markLink(file, await lstat(file, ...args)),
+  )
+  t.diagnostic('Windows file-symlink fixture uses lstat fault injection after EPERM')
+}
+
 const sha256 = (bytes) => `sha256:${crypto.createHash('sha256').update(bytes).digest('hex')}`
 const probe = async () => ({
   mimeType: 'video/mp4',
@@ -107,7 +131,11 @@ test('workspace identity hashes exact marker bytes and capabilities advertise im
   assert.equal(await workspaceFingerprint(root), null)
   fs.rmSync(path.join(root, '.freecut-workspace.json'))
   fs.writeFileSync(path.join(root, 'marker-target.json'), '{"schemaVersion":"2.0"}')
-  fs.symlinkSync('marker-target.json', path.join(root, '.freecut-workspace.json'))
+  fileSymlinkFixture(
+    t,
+    path.join(root, 'marker-target.json'),
+    path.join(root, '.freecut-workspace.json'),
+  )
   assert.equal(await workspaceFingerprint(root), null)
 })
 
@@ -274,9 +302,20 @@ test('rejects symlinks, hash/size mismatch, missing identity, and leaves no part
     (e) => e.code === 'MEDIA_HASH_MISMATCH',
   )
   const link = path.join(root, 'recording', 'link.mp4')
-  fs.symlinkSync(path.join(root, 'recording', 'source.mp4'), link)
+  fileSymlinkFixture(t, path.join(root, 'recording', 'source.mp4'), link)
   await assert.rejects(
     () => run({ ...body, sourceRelativePath: 'recording/link.mp4' }),
+    (e) => e.code === 'INVALID_MEDIA_SOURCE',
+  )
+  const directoryLink = path.join(root, 'recording-link')
+  fs.symlinkSync(
+    path.join(root, 'recording'),
+    directoryLink,
+    process.platform === 'win32' ? 'junction' : 'dir',
+  )
+  assert.equal(fs.lstatSync(directoryLink).isSymbolicLink(), true)
+  await assert.rejects(
+    () => run({ ...body, sourceRelativePath: 'recording-link/source.mp4' }),
     (e) => e.code === 'INVALID_MEDIA_SOURCE',
   )
   await assert.rejects(

@@ -234,6 +234,12 @@ built-harness Chrome regression, every public edit operation, and generated
 media/audio rendering. Real-GPU effects remain an explicit operator/release
 gate because hosted PR CI does not provide a portable WebGPU adapter.
 
+`renderFrame` and `dumpLayout` share project migration and timeline extraction in
+`src/headless/main.ts`. Timeline collections and canvas metadata use nullish
+defaults; missing timelines are rejected, and migration warnings remain visible
+to callers (or fail strict mode). After building, run
+`node headless/test.mjs --skip-build` to exercise both APIs in Chrome.
+
 ### Performance Checks
 
 - `npm run dev` is best for correctness and iteration, but includes React/Vite dev overhead, HMR, and debug instrumentation.

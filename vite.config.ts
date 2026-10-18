@@ -76,6 +76,8 @@ export default defineConfig({
     '*.{js,ts,tsx,json}': 'vp check --fix',
   },
   test: {
+    // Preserve Vitest 4's mock history; adopt Vitest 5 clearing separately.
+    clearMocks: false,
     globals: true,
     environment: 'jsdom',
     setupFiles: ['./src/test/setup.ts'],

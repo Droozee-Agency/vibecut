@@ -161,7 +161,8 @@ async function waitForFaceApplied(
   const isApplied = (): boolean =>
     GENERICS.every(
       (generic) =>
-        measure(`${weight} 100px "${family}", ${generic}`) !== measure(`${weight} 100px ${generic}`),
+        measure(`${weight} 100px "${family}", ${generic}`) !==
+        measure(`${weight} 100px ${generic}`),
     )
 
   let streak = 0
@@ -872,7 +873,7 @@ interface MigratedTimelineView {
 }
 
 /** Migrate a raw project and extract the fields the composition builder needs. */
-// Thin ??-default mapping; exercised end-to-end by the headless chrome contract suite
+// Keep this declarative default mapping together instead of splitting assignments into helpers.
 // fallow-ignore-next-line complexity
 function extractTimeline(rawProject: Project): MigratedTimelineView {
   const { project, warnings: projectWarnings } = migrateProject(rawProject)
