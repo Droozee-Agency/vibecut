@@ -172,7 +172,11 @@ test('submission durably binds canonical request to operation ID and idempotency
   assert.equal(mutableValidationCalls, 0)
   const outside = tempWorkspace()
   t.after(() => fs.rmSync(outside, { recursive: true, force: true }))
-  fs.symlinkSync(outside, path.join(root, 'artifacts'))
+  fs.symlinkSync(
+    outside,
+    path.join(root, 'artifacts'),
+    process.platform === 'win32' ? 'junction' : 'dir',
+  )
   const replayAfterFilesystemChange = await store.submit({
     request: req,
     idempotencyKey: 'key-1',
@@ -580,6 +584,31 @@ test('every durable runner boundary resumes safely and final collisions are neve
   assert.equal(fs.readFileSync(final, 'utf8'), 'foreign')
 })
 
+test('artifact file sync failures stop publication before pending evidence is recorded', async (t) => {
+  const root = tempWorkspace()
+  t.after(() => fs.rmSync(root, { recursive: true, force: true }))
+  const open = fs.promises.open.bind(fs.promises)
+  let flushAttempted = false
+  t.mock.method(fs.promises, 'open', async (file, ...args) => {
+    const handle = await open(file, ...args)
+    if (path.basename(file) === `${OPERATION_ID}.artifact.tmp`) {
+      t.mock.method(handle, 'sync', async () => {
+        flushAttempted = true
+        throw Object.assign(new Error('injected artifact sync failure'), { code: 'EIO' })
+      })
+    }
+    return handle
+  })
+  const setup = await harness(root)
+  await setup.store.submit({ request: setup.req, idempotencyKey: 'file-sync-failure' })
+  const operation = await setup.runner.execute(OPERATION_ID)
+  assert.equal(flushAttempted, true)
+  assert.equal(operation.phase, 'failed')
+  assert.equal(operation.error.code, 'CHECKPOINT_OPERATION_FAILED')
+  assert.equal(operation.pendingArtifact, undefined)
+  assert.equal(fs.existsSync(path.join(root, setup.req.outputRelativePath)), false)
+})
+
 test('a post-publication fsync failure remains retryable instead of terminally poisoning output', async (t) => {
   const root = tempWorkspace()
   t.after(() => fs.rmSync(root, { recursive: true, force: true }))
@@ -622,7 +651,11 @@ test('output containment rejects cross-platform traversal and symlink escapes', 
     })
   }
   fs.mkdirSync(path.join(root, 'artifacts'), { recursive: true })
-  fs.symlinkSync(outside, path.join(root, 'artifacts', 'escape-link'))
+  fs.symlinkSync(
+    outside,
+    path.join(root, 'artifacts', 'escape-link'),
+    process.platform === 'win32' ? 'junction' : 'dir',
+  )
   assert.throws(() => resolveCheckpointOutputPath(root, 'artifacts/escape-link/output.mp4'), {
     code: 'INVALID_OUTPUT_PATH',
   })
@@ -630,7 +663,11 @@ test('output containment rejects cross-platform traversal and symlink escapes', 
   for (const protectedName of ['projects', 'media', '.freecut-headless']) {
     fs.mkdirSync(path.join(root, protectedName), { recursive: true })
     const link = path.join(root, 'artifacts', `internal-${protectedName.replace('.', '')}`)
-    fs.symlinkSync(path.join(root, protectedName), link)
+    fs.symlinkSync(
+      path.join(root, protectedName),
+      link,
+      process.platform === 'win32' ? 'junction' : 'dir',
+    )
     assert.throws(
       () => resolveCheckpointOutputPath(root, `artifacts/${path.basename(link)}/output.mp4`),
       { code: 'INVALID_OUTPUT_PATH' },

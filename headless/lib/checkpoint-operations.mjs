@@ -573,7 +573,8 @@ async function inspectArtifact(file) {
       'Artifact path is not a regular file',
     )
   }
-  const handle = await fs.promises.open(file, 'r')
+  // Windows FlushFileBuffers requires write access; r+ keeps the existing bytes intact.
+  const handle = await fs.promises.open(file, process.platform === 'win32' ? 'r+' : 'r')
   try {
     const opened = await handle.stat()
     if (!opened.isFile())
